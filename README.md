@@ -241,18 +241,23 @@ The core engine works end-to-end. What's next depends on your deployment path:
 
 **Implementation:**
 1. Build a **Streamlit app** that queries `core/storage.py` for usage aggregates:
-   - Spend by source app (AI Gateway, GitHub Copilot, Snowflake, Databricks, M365 Copilot, Copilot Studio)
-   - Budget vs. actual by role (from Role + User + BudgetOverride tables)
-   - Top consumers (aggregated spend per user)
-   - Spend trends (daily/weekly over last 30 days)
-   - Model breakdown (which models are driving cost)
-2. Add filtering: date range, department/team, optional role picker
+   - **Top metrics:** Total spend this period, budget remaining, forecast to EOM, top consumer
+   - **Yearly trends:** 3-year bar chart showing YoY growth rates and adoption acceleration
+   - **Tool adoption:** Active users per SourceApp (last 30 days), penetration %, adoption curves
+   - **Spend by source app** (AI Gateway, GitHub Copilot, Snowflake, Databricks, M365 Copilot, Copilot Studio)
+   - **Budget vs. actual by role** (from Role + User + BudgetOverride tables)
+   - **Top consumers** (aggregated spend per user with team/role context)
+   - **Spend trends** (daily/weekly over last 30 days, stacked by source)
+   - **Model breakdown** (which models are driving cost, cost-per-use analytics)
+2. Add filtering: date range, department/team, optional role picker, year picker
 3. Wire alerts: **threshold breach** when a team/user approaches budget (storage logic is in place; alerting layer is not)
 
 **Data queries you'll need:**
 - `Storage.get_spend_by_source(start_date, end_date, team_id=None)` — aggregated UsageEvent by SourceApp
+- `Storage.get_spend_by_year()` — annual totals for 3-year trend view
+- `Storage.get_active_users_by_source(days=30)` — count(distinct actor_id) per SourceApp for adoption metrics
 - `Storage.get_user_spend_for_month(user_id, year_month)` — check budget limits
-- `Storage.get_spend_breakdown_by_model(start_date, end_date)` — analytics view
+- `Storage.get_spend_breakdown_by_model(start_date, end_date)` — analytics view by model + cost-per-use
 
 ### Phase 2b: Supply Chain Dashboard (Weeks 5-7) — **Optional / Only if PTU Purchasing**
 
