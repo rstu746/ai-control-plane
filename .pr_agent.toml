@@ -1,0 +1,23 @@
+# PR Agent Configuration for ai-control-plane
+# See: https://docs.pr-agent.ai/docs/configuration-guide/
+
+[config]
+model = "anthropic/claude-3-5-sonnet-20240620"
+max_model_retries = 3
+
+[github_action_config]
+auto_review = true
+auto_describe = true
+# Generates PR title, summary, and labels automatically
+
+[pr_reviewer]
+# Code review settings
+require_tests_for_new_code = false
+# Don't require tests for new code (connectors are still ramping)
+require_score_to_run = 0
+# Always run, even for very simple PRs
+
+[github_action_config.inline_comments]
+# Post inline comments on changed lines where issues are found
+post_inline_comments = true
+max_inline_comments = 10
