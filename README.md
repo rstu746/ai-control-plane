@@ -348,3 +348,4 @@ Supply Chain Dashboard ← core/burn_rate.py + core/recommender.py (inventory pl
 ## License
 
 MIT — see [LICENSE](LICENSE).
+# Final test: Claude Opus 5 code review
