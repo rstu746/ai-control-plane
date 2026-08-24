@@ -12,7 +12,7 @@ This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) to aut
 
 - **Auto-review:** Comprehensive code review on every PR
 - **Auto-describe:** Generates PR title, summary, and labels
-- **Model:** Claude 3.5 Sonnet via Anthropic API
+- **Model:** Claude 3-5 Sonnet via Anthropic API
 
 All PRs will receive an automated review comment within 1-2 minutes of opening. Developers can also use `/review` command to manually trigger reviews or `/disable` to skip specific PRs.
 
