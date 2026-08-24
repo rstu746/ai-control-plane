@@ -1,5 +1,9 @@
 """Utility functions for AI Control Plane."""
-
+git checkout -b test-pr-agent
+# Edit core/utils.py or create another test file
+git add .
+git commit -m "Test PR Agent review capabilities"
+git push origin test-pr-agent
 
 def validate_token_quantity(quantity):
     """Validate that token quantity is positive."""
