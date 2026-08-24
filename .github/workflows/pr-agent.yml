@@ -13,11 +13,11 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
       - name: PR Agent Review
         uses: the-pr-agent/pr-agent@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          config.model: "anthropic/claude-3-5-sonnet-20241022"
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_KEY }}
-          github_action_config.auto_review: "true"
-          github_action_config.auto_describe: "true"
+          OPENAI_API_KEY: "dummy_key"
