@@ -2,7 +2,7 @@
 # See: https://docs.pr-agent.ai/docs/configuration-guide/
 
 [config]
-model = "anthropic/claude-3-5-sonnet-20241022"
+model = "anthropic/claude-opus-5"
 max_model_retries = 3
 
 [github_action_config]
