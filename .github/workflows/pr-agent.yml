@@ -13,8 +13,6 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
       - name: PR Agent Review
         uses: the-pr-agent/pr-agent@main
         env:
