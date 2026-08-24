@@ -5,6 +5,16 @@
 > synthetic test fixture (see Quick start) — write a connector against your
 > own data to get real dashboards. Budget aggregation and cold-start
 > benchmarking are designed but not yet built — see [Roadmap](#roadmap).
+>
+> ## Automated Code Review
+
+This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) to automatically review pull requests:
+
+- **Auto-review:** Comprehensive code review on every PR
+- **Auto-describe:** Generates PR title, summary, and labels
+- **Model:** Claude 3.5 Sonnet via Anthropic API
+
+All PRs will receive an automated review comment within 1-2 minutes of opening. Developers can also use `/review` command to manually trigger reviews or `/disable` to skip specific PRs.
 
 A lightweight control plane for organizations running AI workloads across
 multiple platforms — with two purposes:
