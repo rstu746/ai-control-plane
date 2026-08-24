@@ -1,0 +1,8 @@
+# Core has zero hard dependencies beyond the standard library.
+# Add these as later phases (forecasting, dashboard, API) come online:
+
+# statsmodels>=0.14   # Holt-Winters demand forecasting (Phase 4)
+# streamlit>=1.38      # dashboard (Phase 3+)
+# fastapi>=0.115       # API layer (Phase 3+)
+# uvicorn>=0.30        # API server
+# pytest>=8.0          # tests
