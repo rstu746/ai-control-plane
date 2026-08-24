@@ -218,6 +218,84 @@ dependency — nothing here needs to change to add one.
       `confirm_*`), never agent-autonomous. See
       [docs/architecture.md](docs/architecture.md#agent-facing-layer-future-not-yet-built).
 
+## Next Steps: Implementation Roadmap (Post-Hackathon)
+
+The core engine works end-to-end. What's next depends on your deployment path:
+
+### Phase 1: Connectors + Real Data (Weeks 1-3)
+
+**Goal:** Pull real usage data from your org's AI tools into the engine.
+
+1. **Write connectors** for your sources — one per tool you want visibility into:
+   - Implement `UsageConnector.pull()` for each SourceApp (AI Gateway, GitHub Copilot, Snowflake, etc.)
+   - Handle org-specific auth, cost-center/team mapping, and data privacy review
+   - Live in your **private repo**; this public one stays generic
+2. **Backfill historical usage** (if available) to train the burn-rate models
+3. **Wire up `core/storage.py`** to your database (Postgres in prod; SQLite works for pilot)
+
+### Phase 2a: Budget Dashboard (Weeks 3-5) — **Recommended Priority**
+
+**Why first:** Every org using AI tools needs spend tracking and budget enforcement. More widely applicable than PTU inventory planning.
+
+**Mockup & design:** See `Budget Dashboard` artifact linked in the repo — shows the layout, metrics, and data structure.
+
+**Implementation:**
+1. Build a **Streamlit app** that queries `core/storage.py` for usage aggregates:
+   - Spend by source app (AI Gateway, GitHub Copilot, Snowflake, Databricks, M365 Copilot, Copilot Studio)
+   - Budget vs. actual by role (from Role + User + BudgetOverride tables)
+   - Top consumers (aggregated spend per user)
+   - Spend trends (daily/weekly over last 30 days)
+   - Model breakdown (which models are driving cost)
+2. Add filtering: date range, department/team, optional role picker
+3. Wire alerts: **threshold breach** when a team/user approaches budget (storage logic is in place; alerting layer is not)
+
+**Data queries you'll need:**
+- `Storage.get_spend_by_source(start_date, end_date, team_id=None)` — aggregated UsageEvent by SourceApp
+- `Storage.get_user_spend_for_month(user_id, year_month)` — check budget limits
+- `Storage.get_spend_breakdown_by_model(start_date, end_date)` — analytics view
+
+### Phase 2b: Supply Chain Dashboard (Weeks 5-7) — **Optional / Only if PTU Purchasing**
+
+**Why optional:** Only applies to orgs buying pre-purchased capacity (e.g., Azure PTUs). Many orgs use pay-as-you-go and skip this entirely.
+
+**Mockup & design:** See `Supply Chain Dashboard` artifact — shows pools, burn rates, reorder recommendations, model lifecycle.
+
+**Implementation:**
+1. Build a **Streamlit app** for capacity pool monitoring:
+   - Pool inventory: model, region, capacity, tokens remaining, % consumed, days of supply
+   - Burn rate trends: daily/weekly consumption over last 28 days
+   - Recommendations panel: increase/hold actions by urgency, human approval buttons
+   - Model lifecycle: candidate → benchmarked → piloted → established → deprecated states
+2. Wire **human approval workflow** (approve/dismiss buttons persist action intent to storage)
+3. Feed recommendations to an advisory channel (Slack, email) for ops team
+
+**Data queries you'll need:**
+- `Storage.get_capacity_pools()` — all CapacityPool records
+- `Storage.get_burn_rate_summary(pool_id)` — from `core/burn_rate.summarize_burn_rate()`
+- `Storage.get_recommendations()` — from `core/recommender.recommend_for_pool()`
+
+### Phase 3: Forecasting & Cold-Start Benchmarking (Weeks 8+)
+
+Once you have real usage history and PTU purchasing:
+- **Holt-Winters forecast** (statsmodels) for established models — replaces simple rolling average
+- **Benchmark suite** for new models → projected demand before real usage accrues
+- **Model release watcher** — alert when a newer/cheaper model becomes available
+
+### Data Flow Recap
+
+```
+Your Connectors (private repo, auth + mapping)
+    ↓
+UsageEvent + CapacityPool (canonical schema)
+    ↓
+core/storage.py (SQLite/Postgres)
+    ↓
+Budget Dashboard ← core/storage queries (spend by source, budget vs actual)
+Supply Chain Dashboard ← core/burn_rate.py + core/recommender.py (inventory planning)
+```
+
+**Key principle:** `core/` stays generic and public. Everything org-specific (connectors, private data, alerting policy) lives in your private repo.
+
 ## Design notes
 
 - **USD is the common unit for budget aggregation; tokens are the unit for
