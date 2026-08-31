@@ -5,14 +5,14 @@
 > Run `python3 demo.py` to see both pipelines with zero setup.
 > See [Roadmap](#roadmap) for what's next.
 
-> ## Automated Code Review
->
-> This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) to automatically review pull requests:
-> - **Auto-review:** Comprehensive code review on every PR
-> - **Auto-describe:** Generates PR title, summary, and labels
-> - **Model:** Claude 3.5 Sonnet via Anthropic API
->
-> All PRs receive an automated review comment within 1-2 minutes of opening. Use `/review` to trigger manually or `/disable` to skip.
+## Automated Code Review
+
+This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) to automatically review pull requests:
+- **Auto-review:** Comprehensive code review on every PR
+- **Auto-describe:** Generates PR title, summary, and labels
+- **Model:** Claude Opus 5 via Anthropic API
+
+All PRs receive an automated review comment within 1-2 minutes of opening. Use `/review` to trigger manually or `/disable` to skip.
 
 A lightweight control plane for organisations running AI workloads across
 multiple platforms — with three purposes:
@@ -231,7 +231,8 @@ storage/
 
 connectors/
   base.py               # UsageConnector interface (pull + pull_manifest_fragments)
-  synthetic.py          # test fixture — realistic demo data, not for production
+  synthetic.py          # test fixture — realistic multi-model usage, not for production
+  synthetic_coding_assistant.py  # weekday/working-hours shaped human-driven generator
   langsmith.py          # LangSmith run traces
   dynatrace.py          # Dynatrace AI observability spans
   github_copilot.py     # GitHub Copilot seat + usage API
@@ -370,6 +371,8 @@ Studio quotas, Snowflake resource monitors — is the next roadmap item.
 - [x] SQLite backend (dev / demo)
 - [x] Snowflake backend (production analytics)
 - [x] Azure Blob append-only audit trail
+
+**Dashboards & API**
 - [ ] Budget aggregation dashboard (Streamlit)
 - [ ] Supply chain + governance dashboard (Streamlit)
 - [ ] FastAPI layer
