@@ -27,40 +27,35 @@ Table strategy:
 from __future__ import annotations
 
 import json
+import logging
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
 from core.models import (
-    Agent,
-    AgentManifest,
-    AgentStatus,
-    AgentTier,
-    AlertEventType,
-    AlertHistory,
-    AlertRule,
     AuditEvent,
-    BudgetOverride,
     CapacityPool,
-    ClassificationResult,
-    ControlFlowType,
-    CostConstruct,
     DemandDriver,
-    DiscoverySource,
-    FunctionalRole,
-    ModelStatus,
-    RegulatoryFlag,
     ResourceType,
-    Role,
-    Severity,
     SourceApp,
     TrendSnapshot,
     UsageEvent,
-    User,
-    Workflow,
-    WorkflowItem,
-    WorkflowItemStatus,
-    WorkflowItemType,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _import_snowflake():
+    """Lazy import of snowflake.connector. Raises ImportError with a clear
+    message if the package is not installed."""
+    try:
+        import snowflake.connector
+        return snowflake.connector
+    except ImportError as exc:
+        raise ImportError(
+            "snowflake-connector-python is required for SnowflakeBackend. "
+            "Install it with: pip install snowflake-connector-python"
+        ) from exc
 
 
 class SnowflakeBackend:
@@ -68,7 +63,18 @@ class SnowflakeBackend:
 
     Requires snowflake-connector-python. Pass either a live connection object
     or a dict of connection kwargs (account, user, password, warehouse,
-    database, schema, role) to the constructor."""
+    database, schema, role) to the constructor.
+
+    Connection ownership:
+      - dict kwargs → this class opens and closes a new connection per
+        _connect() context. autocommit=True is set explicitly so every
+        statement is committed immediately without callers needing to call
+        conn.commit().
+      - live connection → the caller owns the connection lifecycle and is
+        responsible for commit/close. autocommit must be configured by the
+        caller; this class never calls conn.commit() or conn.close() on a
+        caller-owned connection.
+    """
 
     def __init__(
         self,
@@ -81,34 +87,66 @@ class SnowflakeBackend:
         self._schema = schema
         self._ensure_tables()
 
-    def _get_connection(self):
-        """Return a Snowflake connection. Lazy import so the module is
-        importable even if the package is not installed (the SQLite backend
-        will be used instead in that case)."""
-        try:
-            import snowflake.connector
-        except ImportError as exc:
-            raise ImportError(
-                "snowflake-connector-python is required for SnowflakeBackend. "
-                "Install it with: pip install snowflake-connector-python"
-            ) from exc
+    # ------------------------------------------------------------------
+    # Connection management
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def _connect(self):
+        """Yield a (connection, cursor, owned) triple.
+
+        owned=True means this method opened the connection and will close it.
+        owned=False means the caller passed a live connection; we never touch
+        its lifecycle or call commit() on it.
+
+        When owned=True the connection is opened with autocommit=True so that
+        DDL and DML are committed immediately — callers do not need to call
+        conn.commit() explicitly.
+        """
+        connector = _import_snowflake()
 
         if isinstance(self._conn_or_kwargs, dict):
-            return snowflake.connector.connect(**self._conn_or_kwargs)
-        return self._conn_or_kwargs
+            conn = connector.connect(**self._conn_or_kwargs, autocommit=True)
+            owned = True
+        else:
+            conn = self._conn_or_kwargs
+            owned = False
 
-    def _execute(self, sql: str, params: tuple = ()) -> list[dict]:
-        conn = self._get_connection()
+        cur = conn.cursor(connector.DictCursor)
         try:
-            cur = conn.cursor(snowflake.connector.DictCursor)  # type: ignore[attr-defined]
-            cur.execute(sql, params)
-            return cur.fetchall() or []
+            yield conn, cur, owned
         finally:
-            if isinstance(self._conn_or_kwargs, dict):
+            cur.close()
+            if owned:
                 conn.close()
 
+    # ------------------------------------------------------------------
+    # Internal execute helper
+    # ------------------------------------------------------------------
+
+    def _execute(self, sql: str, params: tuple = ()) -> list[dict]:
+        """Execute a single statement and return all rows as dicts.
+
+        For caller-owned connections (owned=False) commit responsibility
+        lies with the caller. For dict-kwargs connections autocommit=True
+        handles commits automatically."""
+        with self._connect() as (conn, cur, owned):
+            cur.execute(sql, params)
+            return cur.fetchall() or []
+
+    # ------------------------------------------------------------------
+    # Schema initialisation
+    # ------------------------------------------------------------------
+
     def _ensure_tables(self) -> None:
-        """Create tables if they do not exist. Safe to call on every startup."""
+        """Create tables if they do not exist. Safe to call on every startup.
+
+        Errors are logged rather than silently swallowed: a real failure
+        (bad credentials, missing warehouse, insufficient privileges) is
+        distinguishable from an 'object already exists' non-error. The
+        latter is suppressed because CREATE TABLE IF NOT EXISTS in Snowflake
+        still raises when the caller lacks CREATE privilege on an existing
+        object in some configurations."""
         ddl_statements = [
             f"""
             CREATE TABLE IF NOT EXISTS {self._database}.{self._schema}.usage_events (
@@ -179,10 +217,21 @@ class SnowflakeBackend:
         for ddl in ddl_statements:
             try:
                 self._execute(ddl)
-            except Exception:
-                # Table may already exist with different column set in older schema;
-                # log and continue rather than crashing on startup.
-                pass
+            except Exception as exc:
+                msg = str(exc).lower()
+                # Suppress "already exists" variants — these are harmless.
+                # Log and re-raise everything else so real failures (bad
+                # credentials, missing warehouse, insufficient privileges)
+                # are visible immediately rather than surfacing later as
+                # confusing read/write errors.
+                if "already exists" in msg or "object already exists" in msg:
+                    logger.debug("Table already exists, skipping: %s", exc)
+                else:
+                    logger.error(
+                        "Failed to create table during SnowflakeBackend._ensure_tables: %s",
+                        exc,
+                    )
+                    raise
 
     # ------------------------------------------------------------------
     # Usage events
@@ -197,26 +246,30 @@ class SnowflakeBackend:
              quantity, unit_cost_usd, model, agent_id, workflow_id, metadata_json)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, PARSE_JSON(%s))
         """
-        conn = self._get_connection()
-        try:
-            cur = conn.cursor()
-            cur.executemany(
-                sql,
-                [
-                    (
-                        e.timestamp.isoformat(), e.actor_id, e.team_id,
-                        e.source_app.value, e.resource_type.value,
-                        e.quantity, e.unit_cost_usd, e.model,
-                        e.agent_id, e.workflow_id,
-                        json.dumps(e.metadata) if e.metadata else "{}",
-                    )
-                    for e in events
-                ],
-            )
-            conn.commit()
-        finally:
-            if isinstance(self._conn_or_kwargs, dict):
-                conn.close()
+        connector = _import_snowflake()
+        with self._connect() as (conn, cur, owned):
+            # executemany via the plain (non-dict) cursor for batch inserts
+            plain_cur = conn.cursor()
+            try:
+                plain_cur.executemany(
+                    sql,
+                    [
+                        (
+                            e.timestamp.isoformat(), e.actor_id, e.team_id,
+                            e.source_app.value, e.resource_type.value,
+                            e.quantity, e.unit_cost_usd, e.model,
+                            e.agent_id, e.workflow_id,
+                            json.dumps(e.metadata) if e.metadata else "{}",
+                        )
+                        for e in events
+                    ],
+                )
+                # Commit only when we own the connection (autocommit=False
+                # on caller-owned connections is the caller's responsibility).
+                if not owned:
+                    conn.commit()
+            finally:
+                plain_cur.close()
         return len(events)
 
     def get_usage_events(
@@ -354,7 +407,16 @@ class SnowflakeBackend:
             for r in rows
         ]
 
+    # ------------------------------------------------------------------
+    # Audit events
+    # ------------------------------------------------------------------
+
     def append_audit_event(self, event: AuditEvent) -> None:
+        """Append an audit event. Uses INSERT ... WHERE NOT EXISTS as an
+        idempotency guard — duplicate event_ids are silently ignored.
+
+        Audit events are compliance-relevant. A failure here is logged as an
+        error rather than silently swallowed so operators are alerted."""
         sql = f"""
         INSERT INTO {self._database}.{self._schema}.audit_events
             (event_id, timestamp, event_type, agent_id, actor_id,
@@ -365,15 +427,60 @@ class SnowflakeBackend:
             WHERE event_id = %s
         )
         """
-        self._execute(
-            sql,
-            (
-                event.event_id, event.timestamp.isoformat(), event.event_type,
-                event.agent_id, event.actor_id,
-                json.dumps(event.before_state), json.dumps(event.after_state),
-                event.source, event.event_id,
-            ),
+        try:
+            self._execute(
+                sql,
+                (
+                    event.event_id, event.timestamp.isoformat(), event.event_type,
+                    event.agent_id, event.actor_id,
+                    json.dumps(event.before_state), json.dumps(event.after_state),
+                    event.source, event.event_id,
+                ),
+            )
+        except Exception as exc:
+            # Audit events must not be silently lost — log at ERROR so
+            # operators are alerted even if the exception is not re-raised.
+            logger.error(
+                "Failed to append audit event %s to Snowflake: %s",
+                event.event_id, exc,
+            )
+            raise
+
+    def get_audit_events(
+        self,
+        agent_id: str | None = None,
+        since: datetime | None = None,
+        event_type: str | None = None,
+    ) -> list[AuditEvent]:
+        conditions = ["1=1"]
+        params: list = []
+        if agent_id:
+            conditions.append("agent_id = %s")
+            params.append(agent_id)
+        if since:
+            conditions.append("timestamp >= %s")
+            params.append(since.isoformat())
+        if event_type:
+            conditions.append("event_type = %s")
+            params.append(event_type)
+        sql = (
+            f"SELECT * FROM {self._database}.{self._schema}.audit_events "
+            f"WHERE {' AND '.join(conditions)} ORDER BY timestamp ASC"
         )
+        rows = self._execute(sql, tuple(params))
+        return [
+            AuditEvent(
+                event_id=r["EVENT_ID"],
+                timestamp=r["TIMESTAMP"],
+                event_type=r["EVENT_TYPE"],
+                agent_id=r.get("AGENT_ID"),
+                actor_id=r.get("ACTOR_ID"),
+                before_state=r.get("BEFORE_JSON") or {},
+                after_state=r.get("AFTER_JSON") or {},
+                source=r.get("SOURCE", "ai-control-plane"),
+            )
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # Stub methods — delegate to SqliteBackend for operational tables
@@ -413,4 +520,3 @@ class SnowflakeBackend:
     def get_alert_rules(self, **kwargs): raise NotImplementedError
     def insert_alert_history(self, record): raise NotImplementedError
     def get_alert_history(self, **kwargs): raise NotImplementedError
-    def get_audit_events(self, **kwargs): raise NotImplementedError
