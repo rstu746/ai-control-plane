@@ -1,8 +1,22 @@
 # Core has zero hard dependencies beyond the standard library.
-# Add these as later phases (forecasting, dashboard, API) come online:
+# Optional dependencies are listed below by feature area.
 
-# statsmodels>=0.14   # Holt-Winters demand forecasting (Phase 4)
-# streamlit>=1.38      # dashboard (Phase 3+)
-# fastapi>=0.115       # API layer (Phase 3+)
-# uvicorn>=0.30        # API server
-# pytest>=8.0          # tests
+# --- Supply chain dashboard (Phase 2b) ---
+# statsmodels>=0.14      # Holt-Winters demand forecasting
+# streamlit>=1.38         # dashboard UI
+# fastapi>=0.115          # API layer
+# uvicorn>=0.30           # API server
+
+# --- Storage backends ---
+# snowflake-connector-python>=3.0   # SnowflakeBackend
+# azure-storage-blob>=12.0          # AzureBlobAuditBackend
+
+# --- Platform connectors ---
+# requests>=2.32          # GitHub Copilot, Copilot Studio, Dynatrace, Databricks, Azure AI Foundry
+# msal>=1.28              # Copilot Studio (Azure AD auth)
+# azure-identity>=1.17    # Azure AI Foundry
+# azure-monitor-query>=1.3 # Azure AI Foundry metrics
+# langsmith>=0.1          # LangSmith connector
+
+# --- Testing ---
+# pytest>=8.0
