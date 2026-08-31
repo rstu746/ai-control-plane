@@ -7,12 +7,13 @@
 
 ## Automated Code Review
 
-This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) to automatically review pull requests:
-- **Auto-review:** Comprehensive code review on every PR
-- **Auto-describe:** Generates PR title, summary, and labels
-- **Model:** Claude Opus 5 via Anthropic API
+This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) for automated PR review. Every PR receives a review within 1-2 minutes of opening. Use `/review` to trigger manually or `/disable` to skip.
 
-All PRs receive an automated review comment within 1-2 minutes of opening. Use `/review` to trigger manually or `/disable` to skip.
+| Setting | Value |
+|---|---|
+| Auto-review | On — comprehensive code review on every PR |
+| Auto-describe | On — generates PR title, summary, and labels |
+| Model | Claude Opus 5 via Anthropic API |
 
 A lightweight control plane for organisations running AI workloads across
 multiple platforms — with three purposes:
@@ -69,27 +70,28 @@ Incomplete Agent (missing manifest) unclassified  unclassified
 The point of this project is to plug it into your own AI tools and get real,
 cross-tool dashboards — not to run it against demo data.
 
-**For usage events**, implement `UsageConnector.pull()`:
+**For usage events and agent manifest discovery**, implement `UsageConnector`:
 
 ```python
+from datetime import datetime
+
 from connectors.base import UsageConnector
-from core.models import UsageEvent
+from core.models import AgentManifestFragment, DiscoverySource, UsageEvent
+
 
 class MyGatewayConnector(UsageConnector):
     def source_name(self) -> str:
         return "my_gateway"
 
     def pull(self, since: datetime) -> list[UsageEvent]:
-        # call your gateway's usage API, normalize into UsageEvent
+        # Call your gateway's usage API and normalise into UsageEvent.
+        # Only pull() is required; pull_manifest_fragments() is optional.
         ...
-```
 
-**For agent manifest discovery**, also implement `pull_manifest_fragments()`:
-
-```python
     def pull_manifest_fragments(self, since: datetime) -> list[AgentManifestFragment]:
-        # return partial manifest data inferred from your platform's metadata API
-        # the registry merges fragments from multiple connectors automatically
+        # Return partial manifest data inferred from your platform's metadata API.
+        # The agent registry merges fragments from multiple connectors automatically.
+        # Omit this method (or return []) if your source has no manifest metadata.
         ...
 ```
 
