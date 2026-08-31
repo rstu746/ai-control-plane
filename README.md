@@ -264,7 +264,7 @@ The core engine works end-to-end. What's next depends on your deployment path:
 
 **Data queries you'll need:**
 - `Storage.get_spend_by_source(start_date, end_date, team_id=None)` — aggregated UsageEvent by SourceApp
-- `Storage.get_spend_by_year()` — annual totals for 3-year trend view
+- `Storage.get_spend_by_year()` — annual totals for 2-year trend view
 - `Storage.get_active_users_by_source(days=30)` — count(distinct actor_id) per SourceApp for adoption metrics
 - `Storage.get_user_spend_for_month(user_id, year_month)` — check budget limits
 - `Storage.get_spend_breakdown_by_model(start_date, end_date)` — analytics view by model + cost-per-use
