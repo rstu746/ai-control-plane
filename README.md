@@ -1,40 +1,84 @@
 # AI Control Plane
 
-> **Status:** active prototype. The agent registry, governance pipeline, and
-> analytics engine all work end-to-end against the included synthetic test
-> fixture. Run `python3 demo.py` to see the full pipeline with zero setup,
-> or `streamlit run dashboard/app.py` to open the dashboard.
-> See [Roadmap](#roadmap) for what's next.
+> **Status:** Active prototype — agent registry, governance pipeline, analytics engine, and Streamlit dashboard all work end-to-end against synthetic demo data.
+>
+> `python3 demo.py` · `streamlit run dashboard/app.py`
 
-## Automated Code Review
-
-This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) for automated PR review. Every PR receives a review within 1-2 minutes of opening. Use `/review` to trigger manually or `/disable` to skip.
-
-| Setting | Value |
-|---|---|
-| Auto-review | On — comprehensive code review on every PR |
-| Auto-describe | On — generates PR title, summary, and labels |
-| Model | Claude Opus 5 via Anthropic API |
-
-A monitoring and analytics platform for AI workloads — giving organisations
-a single pane of glass across every AI tool, agent, and model in their estate.
-
-**At its core:** visibility. Every agent discovered, classified, and tracked.
-Every token, every seat, every compute credit in one place. Spend, risk, and
-compliance status without opening five separate dashboards.
-
-**Built on top of that:** agent governance — tier classification, risk
-assessment, compliance workflow items, and typed webhook alerts. Before a gap
-in visibility becomes a control failure.
-
-**Optional module:** token supply chain planning — for organisations purchasing
-model capacity ahead of time (Azure PTUs, reserved throughput). Treat capacity
-as inventory, track burn rate, get reorder point recommendations before you
-run out. Skip this entirely if you're on pay-as-you-go.
+A monitoring and analytics platform that gives organisations a single view across every AI agent, model, and workload in their estate — without opening five separate dashboards.
 
 ---
 
-## Quick start (demo — no credentials needed)
+## The problem it solves
+
+Most organisations adopting AI end up with usage spread across a gateway, several SaaS AI tools, and data platforms. Each is billed differently. Each has its own dashboard. Nobody has a single answer to:
+
+- **What AI agents are running?** Who built them, what can they reach, have they been reviewed?
+- **How much is being spent?** Across tools, teams, models — in one number.
+- **Are we compliant?** Which agents touch personal data? Which haven't been classified?
+- **Are we running out of capacity?** If purchasing PTUs or reserved throughput — when do we hit the reorder point?
+
+This project treats each of those as the problem type it is: a discovery and classification problem, an aggregation problem, a compliance workflow problem, and an inventory management problem.
+
+---
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Sources["Data Sources"]
+        GW["AI Gateway"]
+        GHC["GitHub Copilot"]
+        CS["Copilot Studio"]
+        AIF["Azure AI Foundry"]
+        SF["Snowflake Cortex"]
+        DB["Databricks"]
+        LS["LangSmith"]
+        DT["Dynatrace"]
+    end
+
+    subgraph Connectors["Connector Layer"]
+        UC["UsageConnector\npull() + pull_manifest_fragments()"]
+    end
+
+    subgraph Core["AI Control Plane — Core Engine"]
+        direction TB
+        REG["Agent Registry\nDiscover · Assemble manifests · Track dormancy"]
+        CLS["Classifier\nTier 1/2/3 · Role · Regulatory flags"]
+        RISK["Risk Engine\nAutonomy matrix · Spike detection · Reclassification"]
+        WF["Workflow Engine\nEscalation timeline · Token cap enforcement"]
+        ALERT["Alert Dispatcher\nTyped webhook · Versioned envelope · Per-team routing"]
+        TRENDS["Trends Engine\nDaily snapshots · Week-over-week · Dormant detection"]
+        SC["Supply Chain Planner\nBurn rate · Reorder point · Recommendations"]
+    end
+
+    subgraph Storage["Storage Layer"]
+        SQ["SQLite\nDev / Demo"]
+        SNF["Snowflake\nProduction analytics"]
+        AZB["Azure Blob\nAudit trail (immutable)"]
+    end
+
+    subgraph Outputs["Outputs"]
+        DASH["Streamlit Dashboard"]
+        HOOK["Webhooks\nSlack · Teams · PagerDuty · any URL"]
+        API["FastAPI (roadmap)"]
+    end
+
+    Sources --> Connectors
+    Connectors --> REG
+    REG --> CLS
+    CLS --> RISK
+    RISK --> WF
+    WF --> ALERT
+    REG --> TRENDS
+    Core --> Storage
+    Core --> Outputs
+```
+
+---
+
+## Quick start
+
+No credentials, no dependencies beyond the standard library.
 
 ```bash
 git clone <this-repo>
@@ -42,45 +86,174 @@ cd ai-control-plane
 python3 demo.py
 ```
 
-No dependencies, no credentials, no setup. The demo generates 28 days of
-synthetic multi-team usage and runs it through both pipelines:
+**To open the dashboard:**
 
-**Supply chain planner:**
-```
-Pool                      Model                  Avg/day    Remaining  Days left   Action  Urgency
-pool-gpt4o-eastus         gpt-4o                  79,382    1,912,651       24.1     hold      low
-pool-sonnet-eastus        claude-sonnet-4-6        76,227    1,486,415       19.5     hold      low
-pool-haiku-eastus         claude-haiku-4-5         66,549            0        0.0 increase     high
-   -> Burn rate has crossed the reorder point. Only 0.0 days of supply remain.
+```bash
+pip install streamlit plotly pandas
+streamlit run dashboard/app.py
+# Opens at http://localhost:8501
+# Seeds automatically on first launch (~3 seconds)
 ```
 
-**Agent governance pipeline:**
-```
-Agent                          Expected     Result     Role    Confidence
-HR Knowledge Agent               tier_1     tier_1  watcher         100%
-DPIA Automation Agent            tier_2     tier_2  striker         100%
-Claude Code Agent                tier_3     tier_3 artificer        100%
-  Autonomy control: human_gate  (blast=high, reversibility=irreversible)
-  [WORKFLOW] Holistic review opened — agent-type control flow
+The dashboard has five pages: Overview, Agent Registry, Analytics & Trends, Governance, and Supply Chain.
 
-Incomplete Agent (missing manifest) unclassified  unclassified
-  [WORKFLOW] Classification request: missing ['data_scope']
+---
+
+## How agents get classified
+
+Every agent is classified mechanically from its manifest — what it can reach and do, not which platform it runs on. Copilot Studio, Azure AI Foundry, and a custom gateway build all go through the same rules.
+
+```mermaid
+flowchart TD
+    START([Agent discovered or registered]) --> MANIFEST{Manifest\ncomplete enough?}
+    MANIFEST -- No --> CR[Classification Request\nWorkflowItem raised\nOwner prompted to fill gaps]
+    MANIFEST -- Yes --> T3{Tier 3 trigger?}
+
+    T3 -- "execution_rights = true\ncredentials_held = true\ncan_modify_repos_or_pipelines = true\ncan_modify_other_agents = true" --> TIER3["🔴 Tier 3 — Executing\nFull trace + repo history\nMandatory merge gate\nSandbox only"]
+
+    T3 -- None --> T2{Tier 2 trigger?}
+
+    T2 -- "data_scope = beyond_invoker\nwrites_to_system_of_record\nreaches_external_party\ndistributes_output_autonomously\ngrounding_includes_confidential_of_others" --> TIER2["🟡 Tier 2 — Crossing\nFull trace retained\nHuman gate before SOR writes\nPer-agent budget"]
+
+    T2 -- None --> TIER1["🟢 Tier 1 — Contained\nReversible actions only\nSampled logging\nQuarterly review"]
+
+    TIER1 --> CTRL{Control-flow type?}
+    TIER2 --> CTRL
+    TIER3 --> CTRL
+
+    CTRL -- Scripted --> DONE([Classification complete])
+    CTRL -- "Agent-type\n(runtime tool/MCP selection)" --> HR[Holistic Review\nWorkflowItem raised\nFast path not available\nCapabilities assessed together]
+    HR --> DONE
+```
+
+**Summoner floor rule:** if an agent orchestrates sub-agents, its effective tier is `max(own_tier, max(sub_agent_tiers))`. One Tier 3 sub-agent puts the whole orchestrator at Tier 3.
+
+---
+
+## Governance escalation timeline
+
+When an agent cannot be classified (manifest too sparse) or needs holistic review (agent-type control flow), a workflow item is opened and this timeline runs automatically.
+
+```mermaid
+timeline
+    title Workflow Item Escalation
+    Day 0   : WorkflowItem opened
+            : Webhook fired to team (medium severity)
+    Day +3  : First reminder
+            : Webhook to owner
+    Day +7  : Second reminder
+            : Escalation target notified
+    Day +14 : Escalation fired
+            : Manager / platform owner alerted (high severity)
+    Day +21 : Token cap applied
+            : BudgetOverride written — 25% of ceiling
+            : Webhook fired (high severity)
+```
+
+All thresholds are configurable. The cap is advisory enforcement via `BudgetOverride` (Phase A). Platform API enforcement — Azure APIM rate limits, Copilot Studio quotas, Snowflake resource monitors — is the next roadmap item (Phase B).
+
+---
+
+## Risk assessment
+
+After classification, each agent is assessed against an autonomy matrix based on two dimensions: how far the consequences can spread (blast radius) and whether they can be undone (reversibility).
+
+```mermaid
+quadrantChart
+    title Autonomy Control Matrix
+    x-axis Reversible --> Irreversible
+    y-axis Low Blast Radius --> High Blast Radius
+    quadrant-1 Detect Fast
+    quadrant-2 Human Gate
+    quadrant-3 Let Run
+    quadrant-4 Rate Limit
+    HR Knowledge Agent: [0.1, 0.1]
+    DPIA Agent: [0.35, 0.4]
+    Customer Support Agent: [0.75, 0.75]
+    Claude Code Agent: [0.85, 0.9]
+```
+
+| Control | When | What it means |
+|---|---|---|
+| **Let Run** | Low blast, reversible | Log and sample only |
+| **Detect Fast** | Low blast, irreversible | Undo requires detection — alert on anomaly |
+| **Rate Limit** | High blast, reversible | Cheap alone, systemic at scale |
+| **Human Gate** | High blast, irreversible | No autonomy without prior approval |
+
+---
+
+## Supply chain planner (optional)
+
+Only relevant if purchasing provisioned model capacity (Azure PTUs, reserved throughput). Skip if on pay-as-you-go.
+
+```mermaid
+flowchart LR
+    EV["Usage Events\ntokens / day"] --> BR["Burn Rate\nAvg + std dev\n14-day window"]
+    BR --> RP["Reorder Point\nreorder = avg × lead_time\n+ z × std × √lead_time"]
+    RP --> REC{Remaining\ntokens ≤ reorder\npoint?}
+    REC -- No --> HOLD["Hold\nDays of supply shown"]
+    REC -- Yes --> ACT["Increase — urgency based\non days remaining vs\nlead time"]
+```
+
+`lead_time_days` is procurement + setup time, not just an API call. `z_score` defaults to 1.65 (95% service level).
+
+---
+
+## Project structure
+
+```
+core/                        Engine — no org-specific code lives here
+  agent_registry.py          Discovery, manifest assembly, dormancy
+  classifier.py              Rule-based tier/role/flag inference
+  risk.py                    Autonomy matrix, spike detection, reclassification
+  workflow.py                Escalation timeline, token cap
+  alerting.py                Typed webhook dispatch, versioned envelope
+  trends.py                  Daily snapshots, adoption curves, dormant detection
+  burn_rate.py               Demand bucketing, reorder point calculation
+  recommender.py             Burn-rate to advisory recommendation
+  models.py                  Canonical schema for all entities
+  ...
+
+storage/
+  base.py                    StorageBackend protocol — swap backends freely
+  sqlite.py                  Dev / demo — zero setup, stdlib only
+  snowflake.py               Production analytics and trend queries
+  azure_blob.py              Append-only immutable audit trail
+
+connectors/                  One file per source — implement these in your private repo
+  base.py                    UsageConnector interface
+  langsmith.py               LangSmith run traces
+  dynatrace.py               Dynatrace AI observability spans
+  github_copilot.py          GitHub Copilot seat + usage
+  copilot_studio.py          Power Platform bot usage + manifest inference
+  azure_ai_foundry.py        Azure Monitor metrics + endpoint manifest
+  snowflake_cortex.py        QUERY_HISTORY + execution rights detection
+  databricks.py              Cluster job usage (always Tier 3)
+  synthetic.py               Demo fixture — realistic multi-model usage
+
+dashboard/
+  app.py                     Entry point — seeds on first launch, sidebar navigation
+  seed.py                    Demo pipeline seeding (~3 seconds, no credentials)
+  data.py                    Cached query layer over SqliteBackend
+  pages/                     1_overview · 2_agent_registry · 3_analytics
+                             4_governance · 5_supply_chain
+  components/                badges.py · cards.py
+
+tests/                       82 tests, 0 failures
+docs/
+  webhook-schema.md          Typed payload schemas for all 13 alert event types
 ```
 
 ---
 
-## Use this on your own org's data
+## Adding your own data source
 
-The point of this project is to plug it into your own AI tools and get real,
-cross-tool dashboards — not to run it against demo data.
-
-**For usage events and agent manifest discovery**, implement `UsageConnector`:
+Implement `UsageConnector` in your private repo. Nothing in `core/` changes.
 
 ```python
 from datetime import datetime
-
 from connectors.base import UsageConnector
-from core.models import AgentManifestFragment, DiscoverySource, UsageEvent
+from core.models import AgentManifestFragment, UsageEvent
 
 
 class MyGatewayConnector(UsageConnector):
@@ -89,199 +262,34 @@ class MyGatewayConnector(UsageConnector):
 
     def pull(self, since: datetime) -> list[UsageEvent]:
         # Call your gateway's usage API and normalise into UsageEvent.
-        # Only pull() is required; pull_manifest_fragments() is optional.
+        # This is the only required method.
         ...
 
     def pull_manifest_fragments(self, since: datetime) -> list[AgentManifestFragment]:
-        # Return partial manifest data inferred from your platform's metadata API.
-        # The agent registry merges fragments from multiple connectors automatically.
-        # Omit this method (or return []) if your source has no manifest metadata.
+        # Optional. Return partial manifest data from your platform's metadata API.
+        # The registry merges fragments from multiple connectors automatically.
         ...
 ```
 
-Nothing in `core/` needs to change to add a new source. Reference connectors
-for GitHub Copilot, Copilot Studio, Azure AI Foundry, Snowflake Cortex,
-Databricks, LangSmith, and Dynatrace are in `connectors/` — they show the
-pattern and can be adapted for your auth and org mappings.
-
-**Your connectors, and the real data they touch, should live in your own
-private repo.** They embed org-specific auth and cost-center mappings, and
-real usage data is typically personal data under GDPR once tied to a real
-person. This repo gives you the engine and the interface; it never needs to
-see your real data to do that.
-
----
-
-## Why this exists
-
-Most organisations adopting LLMs end up with usage scattered across a gateway,
-SaaS AI features, and data platforms — each billed differently, each with its
-own dashboard, and no single view of spend or risk per person or team.
-
-Separately, once you're purchasing model capacity ahead of time (PTUs,
-reserved throughput), you have an inventory problem: burn rate varies, running
-out is an operational failure, and new models land with zero usage history
-right when planning is hardest.
-
-And separately again, once you have more than a handful of AI agents running,
-you need to know what each one can reach, whether it's been reviewed, and
-whether it's behaving within its approved scope — before an audit asks.
-
-This project treats each as what it is: an aggregation problem, an
-inventory-management problem with a cold-start case, and a governance problem
-with a mechanical rule engine at its core.
-
----
-
-## How it works
-
-### Agent registry and analytics pipeline
-
-```
-UsageConnector.pull()  +  UsageConnector.pull_manifest_fragments()
-    │                              │
-    ▼                              ▼
-agent_registry.process_usage_events()    →  discover unknown agents from logs
-agent_registry.merge_manifest_fragment() →  assemble AgentManifest from connectors
-    │
-    ▼
-classifier.classify()
-    ├─ manifest complete?  →  ClassificationResult  (tier, role, flags, confidence)
-    └─ manifest sparse?    →  ClassificationRequest  →  WorkflowItem raised
-    │
-    ▼
-risk.assess_risk()           →  AutonomyControl (let_run | detect_fast | rate_limit | human_gate)
-risk.detect_manifest_change() →  ReclassificationTrigger on tooling/scope change
-risk.detect_burn_rate_spike() →  ReclassificationTrigger on >2σ usage jump
-    │
-    ▼
-workflow.WorkflowEngine      →  reminder (Day +3, +7) → escalation (Day +14)
-                                → token cap BudgetOverride (Day +21)
-    │
-    ▼
-alerting.AlertDispatcher     →  typed WebhookEnvelope  (schema_version: "1.0")
-                                routed per team + platform-wide fallback
-    │
-    ▼
-trends.TrendsEngine          →  daily snapshots, week-over-week delta,
-                                adoption shift alerts, dormant detection,
-                                quarterly sweep
-```
-
-### Supply chain planner (optional module)
-
-```
-UsageConnector.pull()
-    │
-    ▼
-UsageEvent (actor, team, model, tokens, cost_usd)
-    │
-    ▼
-burn_rate.summarize_burn_rate()   →  avg/std daily demand, days of supply remaining
-    │
-    ▼
-recommender.recommend_for_pool()  →  hold | increase | reallocate + urgency + reason
-```
-
-Reorder point math (standard inventory theory):
-
-```
-reorder_point = (avg_daily_demand × lead_time_days) + safety_stock
-safety_stock   = z_score × demand_std_dev × sqrt(lead_time_days)
-```
-
-`lead_time_days` is how long it actually takes to provision new capacity —
-procurement + setup, not just an API call. `z_score` is set by your target
-service level (95% by default).
-
-### Tier classification rules
-
-Tier is assigned mechanically from an agent's manifest — the same rules run
-regardless of platform, team, or build tool:
-
-| Tier | Name | Triggers (any one) |
-|---|---|---|
-| **3** | Executing | `execution_rights`, `credentials_held`, `can_modify_repos_or_pipelines`, `can_modify_other_agents` |
-| **2** | Crossing | `data_scope = beyond_invoker`, `writes_to_system_of_record`, `reaches_external_party`, `distributes_output_autonomously`, `grounding_includes_confidential_of_others` |
-| **1** | Contained | All contained conditions hold (default) |
-
-Summoner floor rule: an orchestrator's effective tier = `max(own_tier, max(sub_agent_tiers))`.
-
-Agent-type control flow (runtime tool/MCP selection) always triggers a holistic
-review WorkflowItem regardless of tier — individually safe capabilities can
-combine into something none of them exposes alone.
-
----
-
-## Project structure
-
-```
-core/
-  models.py            # canonical schema — UsageEvent, Agent, CapacityPool, WorkflowItem, ...
-  burn_rate.py          # demand bucketing, reorder point calculation
-  recommender.py        # burn-rate → advisory recommendation
-  model_lifecycle.py    # auto-deprecation by model family + version
-  agent_registry.py     # discovery from gateway logs, manifest assembly, dormancy
-  classifier.py         # rule-based tier/role/flag inference
-  workflow.py           # WorkflowItem lifecycle, escalation timeline, token cap
-  risk.py               # autonomy matrix, manifest change detection, spike detection
-  alerting.py           # typed webhook dispatch with versioned envelope
-  trends.py             # daily snapshots, adoption curves, dormant detection
-  observability.py      # normalisation utilities for LangSmith and Dynatrace
-
-storage/
-  base.py               # StorageBackend protocol
-  sqlite.py             # zero-setup, stdlib-only (dev / demo)
-  snowflake.py          # production analytics and trend queries
-  azure_blob.py         # append-only audit trail (AuditBackend protocol)
-
-connectors/
-  base.py               # UsageConnector interface (pull + pull_manifest_fragments)
-  synthetic.py          # test fixture — realistic multi-model usage, not for production
-  synthetic_coding_assistant.py  # weekday/working-hours shaped human-driven generator
-  langsmith.py          # LangSmith run traces
-  dynatrace.py          # Dynatrace AI observability spans
-  github_copilot.py     # GitHub Copilot seat + usage API
-  copilot_studio.py     # Power Platform bot usage + connector manifest
-  azure_ai_foundry.py   # Azure Monitor token metrics + endpoint manifest
-  snowflake_cortex.py   # QUERY_HISTORY + execution rights detection
-  databricks.py         # cluster job usage (always Tier 3 — executes code)
-
-tests/
-  test_burn_rate.py
-  test_model_lifecycle.py
-  test_storage.py
-  test_synthetic_coding_assistant.py
-  test_classifier.py
-  test_risk.py
-  test_workflow.py
-  test_trends.py
-
-docs/
-  architecture.md       # full pipeline diagram and design notes
-  webhook-schema.md     # typed payload schemas for all 13 alert event types
-
-demo.py                 # runs both pipelines end-to-end, zero credentials
-```
+Your connectors — and the real data they touch — should live in your own private repo. They carry org-specific auth and cost-centre mappings, and real usage data is typically personal data under GDPR once tied to a real person. This repo provides the engine and the interface without ever needing to see your data.
 
 ---
 
 ## Storage backends
 
-| Backend | When to use |
-|---|---|
-| `SqliteBackend` | Local dev, demo, tests. Zero setup — stdlib only. |
-| `SnowflakeBackend` | Production analytics, trend queries, budget rollups at scale. |
-| `AzureBlobAuditBackend` | Append-only immutable audit trail. Always use alongside the primary backend in production. |
+| Backend | Use for | Notes |
+|---|---|---|
+| `SqliteBackend` | Local dev, demo, tests | Zero setup — standard library only |
+| `SnowflakeBackend` | Production analytics | Trend queries, budget rollups at scale |
+| `AzureBlobAuditBackend` | Audit trail | Append-only, immutable. Always run alongside primary backend in production |
 
-The `StorageBackend` protocol (`storage/base.py`) means swapping backends is
-a one-line configuration change in callers; no other code changes.
+Swapping backends is a single constructor call change. All callers depend on the `StorageBackend` protocol in `storage/base.py`.
 
 ---
 
 ## Webhook alerts
 
-All outbound alerts use a typed, versioned envelope:
+All outbound alerts use a typed, versioned envelope. Consumers check `schema_version` before parsing `payload`.
 
 ```json
 {
@@ -291,139 +299,124 @@ All outbound alerts use a typed, versioned envelope:
   "severity": "medium",
   "timestamp": "2026-01-15T09:00:00",
   "source": "ai-control-plane",
-  "payload": { ... }
+  "payload": { "agent_id": "...", "missing_fields": ["data_scope"], ... }
 }
 ```
 
-Thirteen event types are defined — see [`docs/webhook-schema.md`](docs/webhook-schema.md)
-for the full payload schema per event type.
-
-Alert rules are registered per team with a platform-wide fallback:
-
-```python
-from core.models import AlertRule, AlertEventType, Severity
-
-# Team-specific rule
-storage.upsert_alert_rule(AlertRule(
-    rule_id="team-a-slack",
-    webhook_url="https://hooks.slack.com/services/...",
-    event_types=[AlertEventType.CLASSIFICATION_REQUEST, AlertEventType.TOKEN_CAP_APPLIED],
-    min_severity=Severity.MEDIUM,
-    team_id="team-a",
-))
-
-# Platform-wide fallback (team_id=None) — catches agents with no team rule
-storage.upsert_alert_rule(AlertRule(
-    rule_id="platform-fallback",
-    webhook_url="https://your-ops-channel/webhook",
-    event_types=list(AlertEventType),
-    min_severity=Severity.LOW,
-    team_id=None,
-))
-```
-
-Escalation webhooks (WorkflowItem Day +7 / +14) are routed to the team's
-registered escalation webhook, not the general alert rule.
+13 event types are defined — see [`docs/webhook-schema.md`](docs/webhook-schema.md). Alert rules are registered per team with a platform-wide fallback for unattributed agents.
 
 ---
 
-## Workflow escalation timeline
+## Requirements
 
-When an agent cannot be classified (manifest too sparse) or requires holistic
-review (agent-type control flow), a `WorkflowItem` is opened and the following
-timeline runs automatically:
+### Must Have
 
-| Day | Action | Severity |
-|---|---|---|
-| 0 | WorkflowItem opened, webhook fired | `medium` |
-| +3 | First reminder | `medium` |
-| +7 | Second reminder + escalation target notified | `medium` |
-| +14 | Escalation — manager / platform owner | `high` |
-| +21 | Token cap applied (25% of budget ceiling via `BudgetOverride`) | `high` |
+These are the core capabilities the platform cannot function without.
 
-All thresholds are configurable. The cap is Phase A enforcement (internal
-`BudgetOverride`). Platform API enforcement — Azure APIM rate limits, Copilot
-Studio quotas, Snowflake resource monitors — is the next roadmap item.
+| # | Requirement |
+|---|---|
+| M1 | Discover every AI agent running in the estate from gateway logs and platform connectors, without requiring builders to self-register |
+| M2 | Classify each agent to Tier 1, 2, or 3 mechanically from its manifest — same rules regardless of platform |
+| M3 | Flag classification requests when manifest data is missing, and track resolution with an escalation timeline |
+| M4 | Detect and track personal data, external-facing, financially material, and market-facing regulatory obligations per agent |
+| M5 | Provide a single view of spend across all AI tools, models, and platforms in USD |
+| M6 | Fire typed webhook alerts for governance events (classification request, escalation, token cap) routable to any destination |
+| M7 | Maintain an immutable audit trail of all classification and governance decisions |
+| M8 | Support SQLite for development and Snowflake + Azure Blob for production with no code changes in callers |
+
+### Should Have
+
+Important for a production-quality platform but the system works without them.
+
+| # | Requirement |
+|---|---|
+| S1 | Streamlit dashboard giving non-technical stakeholders visibility into agent estate, spend, and governance status without running code |
+| S2 | Automatic dormancy detection — agents inactive beyond a configurable window are flagged and notified quarterly |
+| S3 | Risk assessment per agent using the autonomy matrix (blast radius × reversibility) with a recommended control |
+| S4 | Reclassification triggers on manifest change, new sub-agent linkage, or burn rate spike (>2σ) |
+| S5 | Per-team webhook routing with platform-wide fallback — escalations reach the right owner, not a central ops inbox |
+| S6 | Token cap enforcement (Phase A) via BudgetOverride when a workflow item is not resolved within 21 days |
+| S7 | Model adoption trends, week-over-week deltas, and human-vs-agent demand split in the analytics layer |
+| S8 | Connector reference implementations for GitHub Copilot, Copilot Studio, Azure AI Foundry, Snowflake Cortex, Databricks, LangSmith, and Dynatrace |
+
+### Nice to Have
+
+Valuable additions that extend the platform's reach but are not blocking.
+
+| # | Requirement |
+|---|---|
+| N1 | **DPO Agent** — standalone agent with scheduled jobs (daily/weekly/monthly/quarterly) that proactively contacts owners when personal data obligations are unmet, and answers compliance questions interactively |
+| N2 | **Token cap Phase B** — enforce budget ceilings at the platform edge (Azure APIM rate limits, Copilot Studio quotas, Snowflake resource monitors) rather than advisory BudgetOverride only |
+| N3 | **FastAPI layer** — REST API over the engine so multiple teams and downstream agents can consume governance data without DB access |
+| N4 | **MCP agent-facing layer** — read tools open to agents; write actions (budget changes, capacity approvals) always two-step: propose then human-confirm |
+| N5 | **Manifest Harvester Agent** — auto-infers missing manifest fields from platform APIs and presents a draft to the owner for one-click confirmation, reducing time-to-classification |
+| N6 | **Supply chain planner** — burn rate tracking, reorder-point calculation, and advisory recommendations for organisations purchasing provisioned capacity (Azure PTUs). Skippable on pay-as-you-go |
+| N7 | **Cost Optimiser Agent** — identifies over-specified models, dormant pools, and deprecated model traffic. Monthly cost-avoidance report per team |
+| N8 | **Holt-Winters forecasting** — replaces the rolling-average burn rate with seasonal demand forecasting for established models |
+| N9 | **Audit Reporter Agent** — generates quarterly compliance packs (classification status, DPIA register, regulatory flag summary) and deposits them to SharePoint / email on schedule |
+| N10 | **Onboarding Agent** — chat interface for builders: answers "what tier will my agent be?", guides manifest completion, and runs a pre-build governance check before any code is written |
 
 ---
 
 ## Roadmap
 
-**1 — Agent Registry & Discovery** *(highest priority)*
-- [x] Agent registry — discovery from gateway logs, manifest assembly, dormancy tracking
-- [x] Rule-based tier classifier — Tier 1/2/3, Summoner floor rule, functional roles
-- [x] Platform connectors — LangSmith, Dynatrace, GitHub Copilot, Copilot Studio, Azure AI Foundry, Snowflake Cortex, Databricks
-- [ ] Manifest Harvester Agent — auto-infers missing manifest fields from platform APIs, presents draft to owner for one-click confirmation
+```mermaid
+gantt
+    title Build Sequence
+    dateFormat  YYYY-MM
+    axisFormat  %b %Y
 
-**2 — Analytics & Trends**
-- [x] Trends engine — daily snapshots, week-over-week delta, adoption shift detection, quarterly sweep
-- [x] Dormant agent detection — configurable inactivity window, automatic quarterly sweep
-- [x] Human-driven vs agent-driven demand tracking
-- [x] Streamlit dashboard — agent registry, analytics, governance, supply chain views
-- [ ] Holt-Winters demand forecasting — replaces simple rolling-average burn rate
-- [ ] Model release watcher — advisory signal when a newer/cheaper model is available for a pool you hold
+    section Done
+    Agent registry + classifier      :done, 2026-08, 1M
+    Risk engine + workflow engine    :done, 2026-08, 1M
+    Webhook alerting + trends        :done, 2026-08, 1M
+    Platform connectors (7)          :done, 2026-08, 1M
+    Storage backends (SQLite/Snowflake/Blob) :done, 2026-08, 1M
+    Streamlit dashboard              :done, 2026-09, 1M
 
-**3 — Governance & Compliance**
-- [x] Risk engine — autonomy matrix (blast radius × reversibility), manifest change detection, burn rate spike detection
-- [x] Workflow engine — classification request and holistic review tracking, Day 0/+3/+7/+14/+21 escalation timeline, token cap Phase A
-- [x] Typed webhook alerting — 13 event types, versioned envelope, per-team routing with platform-wide fallback
-- [ ] Token cap Phase B — platform API enforcement (Azure APIM, Copilot Studio quota, Snowflake resource monitors, Databricks cluster policy)
-- [ ] FastAPI layer — REST API over the engine for multi-team and agent consumption
-- [ ] MCP agent-facing layer — read tools open; write actions always two-step (propose → human-confirm)
+    section Next
+    Token cap Phase B                :2026-10, 1M
+    FastAPI layer                    :2026-10, 2M
+    DPO Agent (scheduled + chat)     :2026-11, 2M
+    MCP agent-facing layer           :2026-12, 1M
 
-**4 — Attached Agents** *(standalone services that consume the control plane)*
-- [ ] **DPO Agent** — standalone agent with scheduled jobs and interactive chat interface. Daily: scans for agents with `PERSONAL_DATA` flag missing declarations, contacts owners directly. Weekly: personal data exposure report. Monthly: regulatory flag summary. Quarterly: full audit pack for the human DPO. Also answers compliance questions interactively ("does agent X need a DPIA?", "what are our AI Act obligations here?"). Consumes control plane API; does not write manifests directly.
-- [ ] **Cost Optimiser Agent** — identifies over-specified models for batch tasks, dormant PTU pools, and deprecated model traffic. Monthly cost avoidance report per team.
-- [ ] **Audit Reporter Agent** — generates periodic compliance packs: classification status, open governance items, regulatory flag summary, DPIA register. Deposits to SharePoint / email on schedule.
-- [ ] **Model Watcher Agent** — monitors provider release feeds, triggers cold-start benchmarking pipeline, calculates cost impact of model upgrades.
-- [ ] **Security Incident Agent** — acts on burn rate spikes and unexpected agent discoveries; flags Tier 3 credential rotation gaps.
-- [ ] **Onboarding Agent** — chat interface for builders: "what tier will my agent be?", guided manifest completion, pre-build governance check.
-
-**5 — Supply Chain** *(optional module — applies only if purchasing provisioned capacity)*
-- [x] Canonical usage event schema + connector interface
-- [x] Burn rate tracking + reorder-point / safety-stock calculation
-- [x] Advisory recommendation engine
-- [x] Model lifecycle + auto-deprecation (`model_lifecycle.py`)
-- [x] `demand_driver` on capacity pools — `human_driven` vs `agent_driven`
-- [x] Coding-assistant shaped synthetic generator (`synthetic_coding_assistant.py`)
-- [ ] `synthetic_agent.py` — machine-paced demand generator
-- [ ] Cold-start benchmarking — projected demand for models with no usage history
-
-**6 — Storage & Infrastructure**
-- [x] SQLite backend (dev / demo)
-- [x] Snowflake backend (production analytics)
-- [x] Azure Blob append-only audit trail
+    section Later
+    Manifest Harvester Agent         :2027-01, 1M
+    Holt-Winters forecasting         :2027-01, 1M
+    Cost Optimiser Agent             :2027-02, 1M
+    Audit Reporter Agent             :2027-02, 1M
+    Onboarding Agent                 :2027-03, 1M
+```
 
 ---
 
-## Design notes
+## Design principles
 
-- **USD is the common unit for budget aggregation; tokens are the unit for
-  supply planning.** Snowflake and Databricks don't bill in tokens, and
-  GitHub Copilot / M365 Copilot are seat-based — USD is the only unit all
-  sources share. Tokens only exist natively at the gateway.
-- **"Copilot" is always fully qualified.** GitHub Copilot, M365 Copilot,
-  Copilot Studio, and M365 Cowork are distinct products with distinct billing
-  models and usage APIs. `SourceApp` values reflect this (`GITHUB_COPILOT`,
-  `M365_COPILOT`, `COPILOT_STUDIO`, `M365_COWORK`).
-- **Tier is assigned from configuration, not from platform.** The same
-  classifier rules run whether the agent is built in Copilot Studio, Azure AI
-  Foundry, or a custom gateway. Platform is context, not a classification input.
-- **Budget triggers are strictly aggregate; model breakdown is analytics-only.**
-  Nothing about which model was used should gate whether someone is over budget.
-- **Budget resolution order is override → role → default role.** An unassigned
-  user falls back to `non_tech` explicitly — nobody's spend goes unmonitored
-  because their role mapping is missing.
-- **Recommendations, not automated purchases or enforcement.** The supply chain
-  planner surfaces recommendations for a human to act on. The governance engine
-  applies an internal budget cap at Day +21; platform API enforcement is a
-  roadmap item, not the default.
-- **Public/private split is intentional.** Core engine and interface are fully
-  generic. Connectors (org-specific auth, cost-center mappings, real usage data
-  requiring data-protection review) live in your private repo.
-- **Audit events are never silently lost.** `append_audit_event` in both the
-  Snowflake and Azure Blob backends logs at ERROR and re-raises on failure.
-  The SQLite copy is queryable; the Blob copy is authoritative and immutable.
+**Tier is assigned from configuration, not platform.** Copilot Studio, Azure AI Foundry, and a custom gateway build all go through the same classifier. Platform is context, not a classification input.
+
+**USD is the common unit for spend; tokens for supply planning.** Snowflake and Databricks don't bill in tokens, and GitHub Copilot / M365 Copilot are seat-based. USD is the only unit all sources share.
+
+**Recommendations, not automated enforcement.** The supply chain planner surfaces recommendations for a human to act on. The governance engine applies a budget cap at Day +21 as a signal, not a hard block. Platform API enforcement is a roadmap item, not the default.
+
+**Audit events are never silently lost.** `append_audit_event` in both the Snowflake and Azure Blob backends logs at `ERROR` and re-raises on failure. The SQLite copy is queryable; the Blob copy is authoritative and immutable.
+
+**Public/private split is intentional.** `core/`, `storage/`, and `connectors/` are fully generic. Your connectors — with org-specific auth, cost-centre mappings, and real usage data requiring data-protection review — live in your private repo.
+
+**"Copilot" is always fully qualified.** GitHub Copilot, M365 Copilot, Copilot Studio, and M365 Cowork are distinct products with distinct billing models and usage APIs. `SourceApp` values reflect this everywhere.
+
+---
+
+## Automated code review
+
+This repository uses [PR Agent](https://github.com/The-PR-Agent/pr-agent) for automated PR review. Every PR receives a review within 1–2 minutes of opening.
+
+| Setting | Value |
+|---|---|
+| Auto-review | On — comprehensive code review on every PR |
+| Auto-describe | On — generates PR title, summary, and labels |
+| Model | Claude Opus 5 via Anthropic API |
+
+Use `/review` to trigger manually or `/disable` to skip a specific PR.
 
 ---
 
