@@ -9,13 +9,12 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from dashboard.components.badges import status_badge, tier_badge
+from dashboard.components.badges import status_badge, tier_badge, esc
 from dashboard.components.cards import kpi_row, section_header
 from dashboard.data import DB_PATH, get_workflow_items_df, get_workflow_summary
 from core.models import RegulatoryFlag
 from storage.sqlite import SqliteBackend
 
-st.set_page_config(page_title="Governance — AI Control Plane", layout="wide")
 st.title("Governance")
 st.caption("Classification workflow items, escalation tracking, and regulatory flag overview.")
 
@@ -64,7 +63,7 @@ for col, status in zip(board_cols, active_statuses):
         for _, row in status_items.iterrows():
             with st.container(border=True):
                 st.markdown(
-                    f"**{row['agent_name']}** &nbsp; {tier_badge(row['tier'])}",
+                    f"**{esc(row['agent_name'])}** &nbsp; {tier_badge(row['tier'])}",
                     unsafe_allow_html=True,
                 )
                 st.caption(f"Type: {row['item_type'].replace('_', ' ').title()}")

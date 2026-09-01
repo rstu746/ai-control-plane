@@ -30,7 +30,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from core.burn_rate import summarize_burn_rate
-from core.models import AgentTier, DemandDriver, SourceApp, WorkflowItemStatus
+from core.models import AgentStatus, AgentTier, DemandDriver, SourceApp, WorkflowItemStatus
 from core.recommender import recommend_for_pool
 from storage.sqlite import SqliteBackend
 
@@ -59,7 +59,7 @@ def get_agents_df(
     db = get_db()
     agents = db.get_agents(
         tier=AgentTier(tier) if tier else None,
-        status=status,
+        status=AgentStatus(status).value if status else None,
         source_platform=SourceApp(platform) if platform else None,
         team_id=team_id,
     )
@@ -275,14 +275,18 @@ def get_wow_table_df(days: int = 28) -> pd.DataFrame:
     if not model_snaps:
         return pd.DataFrame()
 
-    # Aggregate by model
+    # Sort descending by date so the first snapshot seen per model is the most recent.
+    # This ensures week_over_week_delta comes from the latest snapshot, not an arbitrary one.
+    model_snaps.sort(key=lambda s: s.snapshot_date, reverse=True)
+
     by_model: dict[str, dict] = {}
     for s in model_snaps:
         m = s.model
         if m not in by_model:
             by_model[m] = {"total_tokens": 0.0, "week_over_week_delta": None}
         by_model[m]["total_tokens"] += s.total_tokens
-        if s.week_over_week_delta is not None:
+        # Only take the delta from the most recent snapshot (first seen due to sort)
+        if by_model[m]["week_over_week_delta"] is None and s.week_over_week_delta is not None:
             by_model[m]["week_over_week_delta"] = s.week_over_week_delta
 
     rows = [{"model": k, **v} for k, v in by_model.items()]

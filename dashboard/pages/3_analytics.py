@@ -21,7 +21,6 @@ from dashboard.data import (
     get_wow_table_df,
 )
 
-st.set_page_config(page_title="Analytics — AI Control Plane", layout="wide")
 st.title("Analytics & Trends")
 st.caption("Usage patterns, model adoption, spend attribution, and dormancy across your AI estate.")
 
@@ -146,7 +145,7 @@ else:
     display_df = wow_df.copy()
     display_df["total_tokens"] = display_df["total_tokens"].apply(lambda x: f"{x:,.0f}")
     display_df["week_over_week_delta"] = display_df["week_over_week_delta"].apply(
-        lambda x: f"{x:+.1%}" if x is not None else "—"
+        lambda x: f"{x:+.1%}" if not pd.isna(x) else "—"
     )
     display_df.columns = ["Model", "Tokens (period)", "Week-over-Week"]
     st.dataframe(display_df, use_container_width=True, hide_index=True)

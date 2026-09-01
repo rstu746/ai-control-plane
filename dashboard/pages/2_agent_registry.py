@@ -14,12 +14,12 @@ from dashboard.components.badges import (
     flag_badges,
     status_badge,
     tier_badge,
+    esc,
 )
 from dashboard.components.cards import section_header
 from dashboard.data import get_agent_detail, get_agents_df, get_tier_counts
 from core.risk import assess_risk
 
-st.set_page_config(page_title="Agent Registry — AI Control Plane", layout="wide")
 st.title("Agent Registry")
 st.caption("Every AI agent discovered or registered in your estate, classified and tracked.")
 
@@ -188,8 +188,8 @@ if selected_rows:
                 st.markdown("**Risk assessment**")
                 st.markdown(
                     f"Autonomy control: {autonomy_badge(risk.autonomy_control.value)} &nbsp; "
-                    f"Blast radius: **{risk.blast_radius}** &nbsp; "
-                    f"Reversibility: **{risk.reversibility}**",
+                    f"Blast radius: **{esc(risk.blast_radius)}** &nbsp; "
+                    f"Reversibility: **{esc(risk.reversibility)}**",
                     unsafe_allow_html=True,
                 )
                 if risk.notes:
@@ -202,7 +202,7 @@ if selected_rows:
                     st.markdown(
                         f"- {r.classified_at.strftime('%Y-%m-%d')} — "
                         f"{tier_badge(r.tier.value)} &nbsp; "
-                        f"confidence {r.confidence:.0%} &nbsp; by `{r.classified_by}`",
+                        f"confidence {r.confidence:.0%} &nbsp; by `{esc(r.classified_by)}`",
                         unsafe_allow_html=True,
                     )
 

@@ -11,12 +11,11 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from dashboard.components.badges import urgency_badge, status_badge
+from dashboard.components.badges import urgency_badge, status_badge, esc
 from dashboard.components.cards import kpi_row, section_header
 from dashboard.data import DB_PATH, get_burn_rate_df, get_pools_df
 from storage.sqlite import SqliteBackend
 
-st.set_page_config(page_title="Supply Chain — AI Control Plane", layout="wide")
 st.title("Supply Chain Planner")
 st.caption(
     "PTU inventory management — track burn rate and get reorder recommendations "
@@ -67,7 +66,7 @@ display_df.columns = [
 ]
 
 st.dataframe(
-    display_df.style.applymap(_urgency_colour, subset=["Urgency"]),
+    display_df.style.map(_urgency_colour, subset=["Urgency"]),
     use_container_width=True,
     hide_index=True,
 )
@@ -117,7 +116,7 @@ else:
 
             with rec_col:
                 st.markdown(
-                    f"**{row['model']}** — {row['pool_id']} &nbsp; "
+                    f"**{esc(row['model'])}** — {esc(row['pool_id'])} &nbsp; "
                     f"{urgency_badge(row['urgency'])}",
                     unsafe_allow_html=True,
                 )

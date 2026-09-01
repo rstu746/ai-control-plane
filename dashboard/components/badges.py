@@ -3,9 +3,16 @@ Reusable badge components — coloured HTML spans for tier, severity,
 autonomy control, and status values.
 
 All functions return an HTML string suitable for st.markdown(..., unsafe_allow_html=True).
+
+Security: every value interpolated into HTML is passed through html.escape() so
+that database-sourced strings (agent names, model names, pool IDs, reasons)
+cannot inject markup. Enum-derived labels (tier_badge, status_badge, etc.) are
+also escaped for defence-in-depth, even though those values are controlled.
 """
 
 from __future__ import annotations
+
+import html as _html
 
 _TIER_COLOURS = {
     "tier_1": ("🟢", "#1a7a4a", "#d4edda"),
@@ -45,11 +52,27 @@ _AUTONOMY_COLOURS = {
 
 
 def _badge(text: str, fg: str, bg: str) -> str:
+    """Render a coloured pill badge. `text` is HTML-escaped before insertion."""
+    safe_text = _html.escape(text)
     return (
         f'<span style="background:{bg};color:{fg};padding:2px 8px;'
         f'border-radius:10px;font-size:0.8em;font-weight:600;'
-        f'white-space:nowrap">{text}</span>'
+        f'white-space:nowrap">{safe_text}</span>'
     )
+
+
+def esc(value: str) -> str:
+    """Escape a database-sourced string for safe embedding in an HTML context.
+
+    Use this whenever interpolating agent names, model names, pool IDs, reasons,
+    or any other value that originates from external data into an
+    st.markdown(..., unsafe_allow_html=True) call.
+
+    Example:
+        st.markdown(f"**{esc(agent.name)}** — {tier_badge(agent.tier.value)}",
+                    unsafe_allow_html=True)
+    """
+    return _html.escape(str(value))
 
 
 def tier_badge(tier: str) -> str:

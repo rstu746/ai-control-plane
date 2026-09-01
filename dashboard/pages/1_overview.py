@@ -9,7 +9,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from dashboard.components.badges import tier_badge, urgency_badge, status_badge
+from dashboard.components.badges import esc, status_badge, tier_badge, urgency_badge
 from dashboard.components.cards import kpi_row, section_header
 from dashboard.data import (
     get_agents_df,
@@ -20,7 +20,6 @@ from dashboard.data import (
     get_workflow_summary,
 )
 
-st.set_page_config(page_title="Overview — AI Control Plane", layout="wide")
 st.title("AI Control Plane")
 st.caption("Monitoring and analytics for every AI agent, model, and workload in your estate.")
 
@@ -116,10 +115,10 @@ if not pools_df.empty:
         st.error(f"**{len(high_urgency)} capacity pool(s) require immediate action**")
         for _, row in high_urgency.iterrows():
             st.markdown(
-                f"- **{row['model']}** ({row['pool_id']}) — "
-                f"{urgency_badge(row['urgency'])} &nbsp; {row['reason']}",
-                unsafe_allow_html=True,
-            )
+                    f"- **{esc(row['model'])}** ({esc(row['pool_id'])}) — "
+                    f"{urgency_badge(row['urgency'])} &nbsp; {esc(row['reason'])}",
+                    unsafe_allow_html=True,
+                )
 
 # ---------------------------------------------------------------------------
 # Recent alerts
