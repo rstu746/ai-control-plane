@@ -1,0 +1,4 @@
+# Dashboard dependencies — install before running `streamlit run dashboard/app.py`
+streamlit>=1.38
+plotly>=5.24
+pandas>=2.2

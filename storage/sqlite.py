@@ -251,6 +251,14 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_events_agent ON audit_events(agent_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_ts    ON audit_events(timestamp);
+
+CREATE TABLE IF NOT EXISTS recommendation_actions (
+    pool_id     TEXT PRIMARY KEY,
+    action      TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    acted_at    TEXT,
+    acted_by    TEXT
+);
 """
 
 
@@ -1116,3 +1124,43 @@ class SqliteBackend:
             )
             for r in rows
         ]
+
+    # ------------------------------------------------------------------
+    # Recommendation actions (dashboard approve/dismiss)
+    # ------------------------------------------------------------------
+
+    def upsert_recommendation_action(
+        self,
+        pool_id: str,
+        action: str,
+        status: str,
+        acted_by: str = "dashboard",
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO recommendation_actions (pool_id, action, status, acted_at, acted_by)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(pool_id) DO UPDATE SET
+                    action=excluded.action,
+                    status=excluded.status,
+                    acted_at=excluded.acted_at,
+                    acted_by=excluded.acted_by
+                """,
+                (pool_id, action, status, datetime.now().isoformat(), acted_by),
+            )
+
+    def get_recommendation_action(self, pool_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM recommendation_actions WHERE pool_id = ?", (pool_id,)
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "pool_id": row["pool_id"],
+            "action": row["action"],
+            "status": row["status"],
+            "acted_at": row["acted_at"],
+            "acted_by": row["acted_by"],
+        }
