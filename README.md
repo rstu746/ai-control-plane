@@ -163,10 +163,10 @@ quadrantChart
     title Autonomy Control Matrix
     x-axis Reversible --> Irreversible
     y-axis Low Blast Radius --> High Blast Radius
-    quadrant-1 Detect Fast
-    quadrant-2 Human Gate
+    quadrant-1 Human Gate
+    quadrant-2 Rate Limit
     quadrant-3 Let Run
-    quadrant-4 Rate Limit
+    quadrant-4 Detect Fast
     HR Knowledge Agent: [0.1, 0.1]
     DPIA Agent: [0.35, 0.4]
     Customer Support Agent: [0.75, 0.75]
