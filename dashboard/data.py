@@ -9,9 +9,10 @@ st.cache_data.clear().
 Each function converts dataclasses to plain dicts or DataFrames so
 Streamlit's st.dataframe can display them directly.
 
-DB path is read from the CONTROL_PLANE_DB environment variable, defaulting
-to /tmp/ai_control_plane_dashboard.db. The seed pipeline writes to that
-same path on first launch.
+DB path is read from the CONTROL_PLANE_DB environment variable. The default
+is ~/.local/state/ai-control-plane/dashboard.db (XDG-style user state
+directory), which is owner-readable only and survives reboots unlike /tmp.
+The directory is created on import if it does not exist.
 """
 
 from __future__ import annotations
@@ -34,15 +35,73 @@ from core.models import AgentStatus, AgentTier, DemandDriver, SourceApp, Workflo
 from core.recommender import recommend_for_pool
 from storage.sqlite import SqliteBackend
 
-DB_PATH = os.environ.get(
-    "CONTROL_PLANE_DB", "/tmp/ai_control_plane_dashboard.db"
-)
+def _default_db_path() -> str:
+    """Return a user-owned, persistent default DB path.
+
+    Preference order:
+      1. CONTROL_PLANE_DB environment variable (always wins)
+      2. ~/.local/state/ai-control-plane/dashboard.db  (XDG user state dir)
+
+    The directory is created with mode 0o700 (owner-only) if it does not
+    exist so the database file is not world-readable on a shared host.
+    """
+    env = os.environ.get("CONTROL_PLANE_DB")
+    if env:
+        return env
+    state_dir = Path.home() / ".local" / "state" / "ai-control-plane"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    # Ensure the directory itself is not world-accessible
+    try:
+        state_dir.chmod(0o700)
+    except OSError:
+        pass  # best-effort; may fail if already correct or on some filesystems
+    return str(state_dir / "dashboard.db")
+
+
+DB_PATH = _default_db_path()
 PTU_LEAD_TIME_DAYS = 5
 
 
 def get_db() -> SqliteBackend:
     """Return a SqliteBackend pointed at the configured DB path."""
     return SqliteBackend(db_path=DB_PATH)
+
+
+# ---------------------------------------------------------------------------
+# Base event fetch — single cached scan shared by all derived views.
+#
+# get_spend_summary, get_daily_tokens_df, get_spend_by_source_df, and
+# get_demand_driver_df previously each called db.get_usage_events() independently,
+# performing four full table scans and holding four copies in memory per render.
+# All derived functions now call _get_raw_events_df() which is cached once per
+# (days, ttl) combination, so subsequent calls within the same 60-second window
+# are served from the Streamlit cache at zero DB cost.
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=60)
+def _get_raw_events_df(days: int = 28) -> pd.DataFrame:
+    """Fetch all usage events for the window and return a flat DataFrame.
+    This is the single source of truth for all spend/token derived views."""
+    db = get_db()
+    since = datetime.now() - timedelta(days=days)
+    events = db.get_usage_events(since=since)
+    if not events:
+        return pd.DataFrame()
+    return pd.DataFrame([
+        {
+            "timestamp": e.timestamp,
+            "date": e.timestamp.date(),
+            "actor_id": e.actor_id,
+            "team_id": e.team_id,
+            "source_app": e.source_app.value,
+            "model": e.model or "unknown",
+            "quantity": e.quantity,
+            "cost_usd": e.cost_usd,
+            "agent_id": e.agent_id,
+            "demand_driver": e.metadata.get("demand_driver", "human_driven"),
+        }
+        for e in events
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -155,9 +214,12 @@ def get_workflow_items_df(status: str | None = None) -> pd.DataFrame:
     if not items:
         return pd.DataFrame()
 
+    # Pre-fetch all agents in one query to avoid an N+1 db.get_agent() per item
+    all_agents = {a.agent_id: a for a in db.get_agents()}
+
     rows = []
     for item in items:
-        agent = db.get_agent(item.agent_id)
+        agent = all_agents.get(item.agent_id)
         age_days = (datetime.now() - item.raised_at).days
         days_until_cap = max(0, 21 - age_days)
         rows.append({
@@ -191,74 +253,49 @@ def get_workflow_summary() -> dict[str, int]:
 
 @st.cache_data(ttl=60)
 def get_spend_summary(days: int = 28) -> dict:
-    db = get_db()
-    since = datetime.now() - timedelta(days=days)
-    events = db.get_usage_events(since=since)
-    total_cost = sum(e.cost_usd for e in events)
-    total_tokens = sum(e.quantity for e in events)
-    by_source: dict[str, float] = {}
-    for e in events:
-        by_source[e.source_app.value] = by_source.get(e.source_app.value, 0) + e.cost_usd
+    df = _get_raw_events_df(days=days)
+    if df.empty:
+        return {"total_cost_usd": 0.0, "total_tokens": 0.0, "event_count": 0, "by_source": {}}
     return {
-        "total_cost_usd": total_cost,
-        "total_tokens": total_tokens,
-        "event_count": len(events),
-        "by_source": by_source,
+        "total_cost_usd": float(df["cost_usd"].sum()),
+        "total_tokens": float(df["quantity"].sum()),
+        "event_count": len(df),
+        "by_source": df.groupby("source_app")["cost_usd"].sum().to_dict(),
     }
 
 
 @st.cache_data(ttl=60)
 def get_daily_tokens_df(days: int = 28) -> pd.DataFrame:
     """Daily token usage per model — used for the burn rate and adoption charts."""
-    db = get_db()
-    since = datetime.now() - timedelta(days=days)
-    events = db.get_usage_events(since=since)
-    if not events:
+    df = _get_raw_events_df(days=days)
+    if df.empty:
         return pd.DataFrame()
-
-    rows = []
-    for e in events:
-        rows.append({
-            "date": e.timestamp.date(),
-            "model": e.model or "unknown",
-            "tokens": e.quantity,
-            "cost_usd": e.cost_usd,
-            "source_app": e.source_app.value,
-            "demand_driver": e.metadata.get("demand_driver", "human_driven"),
-        })
-    df = pd.DataFrame(rows)
     return df.groupby(["date", "model"], as_index=False).agg(
-        tokens=("tokens", "sum"),
+        tokens=("quantity", "sum"),
         cost_usd=("cost_usd", "sum"),
     )
 
 
 @st.cache_data(ttl=60)
 def get_spend_by_source_df(days: int = 28) -> pd.DataFrame:
-    db = get_db()
-    since = datetime.now() - timedelta(days=days)
-    events = db.get_usage_events(since=since)
-    if not events:
+    df = _get_raw_events_df(days=days)
+    if df.empty:
         return pd.DataFrame()
-    rows = [{"source_app": e.source_app.value, "cost_usd": e.cost_usd} for e in events]
-    return pd.DataFrame(rows).groupby("source_app", as_index=False).agg(
-        cost_usd=("cost_usd", "sum")
-    ).sort_values("cost_usd", ascending=True)
+    return (
+        df.groupby("source_app", as_index=False)
+        .agg(cost_usd=("cost_usd", "sum"))
+        .sort_values("cost_usd", ascending=True)
+    )
 
 
 @st.cache_data(ttl=60)
 def get_demand_driver_df(days: int = 28) -> pd.DataFrame:
-    db = get_db()
-    since = datetime.now() - timedelta(days=days)
-    events = db.get_usage_events(since=since)
-    if not events:
+    df = _get_raw_events_df(days=days)
+    if df.empty:
         return pd.DataFrame()
-    human = sum(e.quantity for e in events if e.metadata.get("demand_driver") != "agent_driven")
-    agent = sum(e.quantity for e in events if e.metadata.get("demand_driver") == "agent_driven")
-    return pd.DataFrame([
-        {"driver": "human_driven", "tokens": human},
-        {"driver": "agent_driven", "tokens": agent},
-    ])
+    grouped = df.groupby("demand_driver", as_index=False).agg(tokens=("quantity", "sum"))
+    grouped.columns = ["driver", "tokens"]
+    return grouped
 
 
 # ---------------------------------------------------------------------------
@@ -304,12 +341,31 @@ def get_pools_df(days: int = 28) -> pd.DataFrame:
     if not pools:
         return pd.DataFrame()
 
-    since = datetime.now() - timedelta(days=days)
-    events = db.get_usage_events(since=since)
+    # Reuse the already-cached raw events DataFrame rather than hitting the DB again.
+    # summarize_burn_rate expects list[UsageEvent]; reconstruct lightweight objects
+    # from the DataFrame so we avoid a redundant full table scan.
+    raw_df = _get_raw_events_df(days=days)
+    if raw_df.empty:
+        events_for_pools = []
+    else:
+        from core.models import ResourceType, UsageEvent as _UE, SourceApp as _SA
+        events_for_pools = [
+            _UE(
+                timestamp=row["timestamp"],
+                actor_id=row["actor_id"],
+                team_id=row["team_id"],
+                source_app=_SA(row["source_app"]),
+                resource_type=ResourceType.TOKENS,
+                quantity=row["quantity"],
+                unit_cost_usd=row["cost_usd"] / row["quantity"] if row["quantity"] else 0.0,
+                model=row["model"],
+            )
+            for _, row in raw_df.iterrows()
+        ]
 
     rows = []
     for pool in pools:
-        summary = summarize_burn_rate(pool, events, window_days=14)
+        summary = summarize_burn_rate(pool, events_for_pools, window_days=14)
         rec = recommend_for_pool(pool, summary, lead_time_days=PTU_LEAD_TIME_DAYS)
         rec_action = db.get_recommendation_action(pool.pool_id)
         pct_consumed = (

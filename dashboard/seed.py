@@ -20,8 +20,6 @@ if str(_REPO_ROOT) not in sys.path:
 
 from connectors.synthetic import SyntheticConnector
 from core.agent_registry import AgentRegistry
-from core.alerting import AlertDispatcher
-from core.burn_rate import summarize_burn_rate
 from core.classifier import classify
 from core.models import (
     AgentManifest,
@@ -206,20 +204,15 @@ def run_seed(db: SqliteBackend) -> None:
     for pool in pools:
         db.upsert_capacity_pool(pool)
 
-    # --- Alert rules ---
-    db.upsert_alert_rule(AlertRule(
-        rule_id="platform-fallback",
-        webhook_url="https://example.com/ai-control-plane/alerts",
-        event_types=list(AlertEventType),
-        min_severity=Severity.LOW,
-        team_id=None,
-        description="Platform-wide fallback (demo — replace with your webhook URL)",
-    ))
-
     # --- Agent registry + classification ---
+    # WorkflowEngine is constructed WITHOUT an AlertDispatcher during seeding.
+    # Attaching a dispatcher here would cause every workflow event (holistic review,
+    # classification request) to attempt a real outbound POST — blocking the spinner
+    # on first launch with retries and backoff, and polluting alert_history with
+    # failed dispatches to the placeholder example.com URL.
+    # The demo AlertRule is registered AFTER the seed pipeline completes.
     registry = AgentRegistry(storage=db)
-    dispatcher = AlertDispatcher(storage=db)
-    engine = WorkflowEngine(storage=db, alerting=dispatcher)
+    engine = WorkflowEngine(storage=db, alerting=None)
 
     # Discover agents from usage events
     registry.process_usage_events(events)
@@ -267,3 +260,13 @@ def run_seed(db: SqliteBackend) -> None:
         if day_events:
             trends.compute_daily_snapshots(day_events, date=day)
     trends.compute_week_over_week()
+
+    # --- Alert rules (registered last so no outbound HTTP fires during seeding) ---
+    db.upsert_alert_rule(AlertRule(
+        rule_id="platform-fallback",
+        webhook_url="https://example.com/ai-control-plane/alerts",
+        event_types=list(AlertEventType),
+        min_severity=Severity.LOW,
+        team_id=None,
+        description="Platform-wide fallback (demo — replace with your webhook URL)",
+    ))
