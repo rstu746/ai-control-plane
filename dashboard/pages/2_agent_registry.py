@@ -18,36 +18,44 @@ from dashboard.components.badges import (
 )
 from dashboard.components.cards import section_header
 from dashboard.data import get_agent_detail, get_agents_df, get_tier_counts
+from core.models import AgentStatus, AgentTier, SourceApp
 from core.risk import assess_risk
 
 st.title("Agent Registry")
 st.caption("Every AI agent discovered or registered in your estate, classified and tracked.")
 
 # ---------------------------------------------------------------------------
-# Sidebar filters
+# Sidebar filters — options built from enum members so any mismatch is
+# caught at startup rather than raising ValueError on filter selection
 # ---------------------------------------------------------------------------
+_ALL = "All"
+
+_tier_options = [_ALL] + [e.value for e in AgentTier]
+_tier_labels = {
+    _ALL: "All tiers",
+    AgentTier.TIER_1.value: "Tier 1 — Contained",
+    AgentTier.TIER_2.value: "Tier 2 — Crossing",
+    AgentTier.TIER_3.value: "Tier 3 — Executing",
+    AgentTier.UNCLASSIFIED.value: "Unclassified",
+}
+
+_status_options = [_ALL] + [e.value for e in AgentStatus]
+_platform_options = [_ALL] + [e.value for e in SourceApp]
+
 with st.sidebar:
     st.header("Filters")
     tier_filter = st.selectbox(
         "Tier",
-        options=["All", "tier_1", "tier_2", "tier_3", "unclassified"],
-        format_func=lambda x: {
-            "All": "All tiers",
-            "tier_1": "Tier 1 — Contained",
-            "tier_2": "Tier 2 — Crossing",
-            "tier_3": "Tier 3 — Executing",
-            "unclassified": "Unclassified",
-        }.get(x, x),
+        options=_tier_options,
+        format_func=lambda x: _tier_labels.get(x, x),
     )
     status_filter = st.selectbox(
         "Status",
-        options=["All", "active", "discovered", "unclassified", "pending_review", "dormant", "deprecated"],
+        options=_status_options,
     )
     platform_filter = st.selectbox(
         "Platform",
-        options=["All", "ai_gateway", "github_copilot", "copilot_studio",
-                 "azure_ai_foundry", "snowflake", "databricks", "langsmith",
-                 "dynatrace", "anthropic", "synthetic"],
+        options=_platform_options,
     )
 
 # ---------------------------------------------------------------------------

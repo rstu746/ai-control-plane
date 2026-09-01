@@ -119,8 +119,12 @@ else:
         tier = row["tier"]
         if tier not in tier_values:
             continue
+        # Split on ", " and compare set membership to avoid substring false positives
+        # (e.g. "data" matching inside "personal_data")
+        raw = row["regulatory_flags"] or ""
+        agent_flags = {f.strip() for f in raw.split(",") if f.strip() and f.strip() != "none"}
         for flag in flag_values:
-            if flag in (row["regulatory_flags"] or ""):
+            if flag in agent_flags:
                 heatmap_data[tier][flag] = heatmap_data[tier].get(flag, 0) + 1
 
     import plotly.graph_objects as go
