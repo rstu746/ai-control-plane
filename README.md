@@ -1,23 +1,25 @@
 # AI Control Plane
 
-> **Status:** Active prototype — agent registry, governance pipeline, analytics engine, and Streamlit dashboard all work end-to-end against synthetic demo data.
+> **Status:** Hackathon prototype — a working control loop for discovering AI agents, classifying their capabilities, assessing risk, and routing unresolved governance work. The dashboard runs end-to-end against synthetic data.
 >
 > `python3 demo.py` · `streamlit run dashboard/app.py`
 
-A monitoring and analytics platform that gives organisations a single view across every AI agent, model, and workload in their estate — without opening five separate dashboards.
+AI adoption creates an accountability gap: organisations cannot easily answer what agents are running, what they can do, or who must act when the manifest is incomplete. AI Control Plane is the operational layer that turns that gap into a visible, actionable workflow.
+
+The primary demo story is **discover → classify → assess risk → assign human action**. Spend, trends, and provisioned-capacity planning are supporting operational views, not separate products.
 
 ---
 
 ## The problem it solves
 
-Most organisations adopting AI end up with usage spread across a gateway, several SaaS AI tools, and data platforms. Each is billed differently. Each has its own dashboard. Nobody has a single answer to:
+Most organisations adopting AI end up with agents and usage spread across a gateway, SaaS AI tools, and data platforms. Each has its own dashboard. Nobody has a single accountable answer to:
 
 - **What AI agents are running?** Who built them, what can they reach, have they been reviewed?
 - **How much is being spent?** Across tools, teams, models — in one number.
 - **Are we compliant?** Which agents touch personal data? Which haven't been classified?
-- **Are we running out of capacity?** If purchasing PTUs or reserved throughput — when do we hit the reorder point?
+- **What needs human action now?** Which unresolved manifest, risk, or capacity issue is approaching escalation?
 
-This project treats each of those as the problem type it is: a discovery and classification problem, an aggregation problem, a compliance workflow problem, and an inventory management problem.
+This project treats the central problem as a control loop: discover agents, infer what they can do, classify them consistently, assess blast radius, and route the next action. Spend and capacity views add operational context to that decision.
 
 ---
 
@@ -78,7 +80,7 @@ graph TB
 
 ## Quick start
 
-No credentials, no dependencies beyond the standard library.
+The core pipeline uses only the Python standard library and synthetic data. The optional dashboard requires Streamlit, Plotly, and pandas; install those before presenting the UI.
 
 ```bash
 git clone <this-repo>
@@ -95,7 +97,11 @@ streamlit run dashboard/app.py
 # Seeds automatically on first launch (~3 seconds)
 ```
 
+The dashboard is safe to demo offline. It seeds synthetic data locally and does not require production credentials. The example webhook rule is intentionally not a live integration; replace it with a real destination before testing outbound alerts.
+
 The dashboard has five pages: Overview, Agent Registry, Analytics & Trends, Governance, and Supply Chain.
+
+For the hackathon presentation, see [`docs/hackathon-deck.md`](docs/hackathon-deck.md) for the slide copy, demo cues, run of show, and safety checklist.
 
 ---
 
@@ -239,7 +245,7 @@ dashboard/
                              4_governance · 5_supply_chain
   components/                badges.py · cards.py
 
-tests/                       82 tests, 0 failures
+tests/                       Unit tests for classification, risk, workflow, storage, trends, and supply planning
 docs/
   webhook-schema.md          Typed payload schemas for all 13 alert event types
 ```
